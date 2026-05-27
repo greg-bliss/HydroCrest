@@ -1,0 +1,49 @@
+name: Update Flood Dashboard
+
+on:
+  schedule:
+    # Runs every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Allows you to manually trigger the script via the GitHub UI
+
+permissions:
+  contents: write # Needed to update the cache and commit the HTML file
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        # Optional: Caches pip dependencies so it runs faster after the first setup
+        cache: 'pip' 
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install aiohttp folium nest_asyncio
+
+    - name: Run Flood Dashboard Script
+      run: python your_script.py # Change this to the exact name of your Python file
+
+    - name: Commit and Push Updated Dashboard
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        
+        # Add the dashboard HTML and the cached metadata JSON
+        git add flood_dashboard.html gauge_metadata_cache_all.json
+        
+        # Only commit and push if files actually changed to prevent errors
+        if git diff-index --quiet HEAD; then
+          echo "No changes detected. Skipping push."
+        else
+          git commit -m "Automated dashboard update: $(date -u) UTC"
+          git push
+        fi
