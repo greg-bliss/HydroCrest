@@ -11,7 +11,8 @@ BASE_API_URL = "https://api.water.noaa.gov/nwps/v1/gauges"
 CACHE_FILE = "gauge_metadata_cache_all.json"
 DASHBOARD_FILE = "index.html" 
 
-MAX_CONCURRENT_REQUESTS = 25
+# Safely bumped to 50 since we are halving our total requests!
+MAX_CONCURRENT_REQUESTS = 50
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
 # --- Helper Functions ---
@@ -134,7 +135,7 @@ async def fetch_all_gauge_lids(session, retries=5):
             if attempt == retries - 1:
                 print("Max retries reached. NOAA API is unresponsive.")
                 return []
-            await asyncio.sleep(5) # Wait 5 seconds and try asking NOAA again
+            await asyncio.sleep(5) 
     return []
 
 async def fetch_with_retries(session, url, lid, retries=3):
@@ -172,9 +173,15 @@ async def build_metadata_cache(session):
     print(f"Fetching metadata for {len(target_gauges)} gauges...")
     metadata = {}
     tasks = [fetch_metadata(session, lid) for lid in target_gauges]
-    results = await asyncio.gather(*tasks)
     
-    for lid, data in results:
+    # Progress tracker for metadata
+    total_meta = len(tasks)
+    completed_meta = 0
+    for f in asyncio.as_completed(tasks):
+        lid, data = await f
+        completed_meta += 1
+        if completed_meta % 1000 == 0:
+            print(f"  ... Parsed metadata for {completed_meta} / {total_meta} gauges")
         if data and "latitude" in data and "longitude" in data:
             metadata[lid] = data
                 
@@ -185,17 +192,26 @@ async def build_metadata_cache(session):
 
 async def generate_dashboard():
     connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT_REQUESTS)
-    # Give the connection 60 seconds of grace period, and 1 hour total for the whole script
     timeout = aiohttp.ClientTimeout(total=3600, connect=60, sock_read=60) 
     
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         metadata = await build_metadata_cache(session)
         
-        print(f"Fetching real-time stage/flow updates for {len(metadata)} gauges...")
-        stageflow_data = {}
-        tasks = [fetch_stageflow(session, lid) for lid in metadata.keys()]
+        # --- MASSIVE OPTIMIZATION: Filter LIDs BEFORE fetching timeseries ---
+        valid_lids = []
+        for lid, meta in metadata.items():
+            if lid in ["ESLN8", "DCBN8"]: # Permanent excludes
+                continue
+            flood_categories = meta.get("flood", {}).get("categories", {})
+            if has_valid_thresholds(flood_categories):
+                valid_lids.append(lid)
+                
+        print(f"Filtered to {len(valid_lids)} active gauges with flood thresholds.")
+        print(f"Fetching real-time stage/flow updates for {len(valid_lids)} gauges...")
         
-        # --- NEW: Live Progress Tracker ---
+        stageflow_data = {}
+        tasks = [fetch_stageflow(session, lid) for lid in valid_lids]
+        
         total_tasks = len(tasks)
         completed = 0
         
@@ -252,14 +268,10 @@ async def generate_dashboard():
 
     severityMapDict = {"Major": 4, "Moderate": 3, "Minor": 2, "Action": 1, "Normal": 0}
 
-    for lid, meta in metadata.items():
-        if lid in ["ESLN8", "DCBN8"]:
-            continue
-            
+    # Iterate ONLY over the valid lids we fetched
+    for lid in valid_lids:
+        meta = metadata.get(lid, {})
         flood_categories = meta.get("flood", {}).get("categories", {})
-        if not has_valid_thresholds(flood_categories):
-            continue
-            
         lat = meta.get("latitude")
         lon = meta.get("longitude")
         sf_data = stageflow_data.get(lid, {})
@@ -339,7 +351,6 @@ async def generate_dashboard():
         max_idx = -1
         for idx, entry in enumerate(forecast_array):
             stage = entry.get("primary")
-            # --- FIX: Replaced invalid && with Python 'and' keyword ---
             if stage is not None and stage > forecast_max:
                 forecast_max = stage
                 max_idx = idx
@@ -715,7 +726,6 @@ async def generate_dashboard():
         }};
         
         var activeStatuses = {{ "Major": true, "Moderate": true, "Minor": true, "Action": false }};
-        // --- FIX: Defined severityMapDict client-side for dynamic lookups ---
         var severityMapDict = {{ "Major": 4, "Moderate": 3, "Minor": 2, "Action": 1, "Normal": 0 }};
         var colorMap = {{ "Major": "#cc33ff", "Moderate": "#ff0000", "Minor": "#ff9900", "Action": "#ffff00", "Normal": "#00ff00" }};
         
