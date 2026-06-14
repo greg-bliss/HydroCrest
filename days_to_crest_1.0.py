@@ -194,9 +194,16 @@ async def generate_dashboard():
         print(f"Fetching real-time stage/flow updates for {len(metadata)} gauges...")
         stageflow_data = {}
         tasks = [fetch_stageflow(session, lid) for lid in metadata.keys()]
-        results = await asyncio.gather(*tasks)
         
-        for lid, data in results:
+        # --- NEW: Live Progress Tracker ---
+        total_tasks = len(tasks)
+        completed = 0
+        
+        for f in asyncio.as_completed(tasks):
+            lid, data = await f
+            completed += 1
+            if completed % 500 == 0:
+                print(f"  ... Downloaded {completed} / {total_tasks} gauges")
             if data:
                 stageflow_data[lid] = data
 
