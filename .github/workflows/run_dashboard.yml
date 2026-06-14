@@ -34,7 +34,7 @@ jobs:
         fi
 
     - name: Run Flood Dashboard Script
-      run: python days_to_crest.py
+      run: python days_to_crest_1.0.py
 
     - name: Commit and Push Updated Dashboard
       run: |
