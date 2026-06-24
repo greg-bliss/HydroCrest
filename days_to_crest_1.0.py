@@ -1195,7 +1195,7 @@ async def generate_dashboard():
                     if (cleanDay == day && activeStatuses[d.ds] && !d.cr) {{
                         var dynamicZIndex = severityMapDict[d.ds] * 1000;
                         var circle = L.circleMarker([d.la, d.lo], {{
-                            radius: 8, fillColor: d.color, color: "black", weight: 1.5, opacity: 1, fillOpacity: 0.9, pane: 'sliderTimelinePane'
+                            radius: 8, fillColor: colorMap[d.ds], color: "black", weight: 1.5, opacity: 1, fillOpacity: 0.9, pane: 'sliderTimelinePane'
                         }});
                         
                         if (circle.setZIndexOffset) circle.setZIndexOffset(dynamicZIndex);
